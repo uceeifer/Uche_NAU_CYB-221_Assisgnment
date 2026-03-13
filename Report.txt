@@ -1,0 +1,117 @@
+**Local Port Discovery and Service Identification Report**  
+**NAU-CYB 221 – Cybersecurity Technology**
+
+**Student Information**  
+Name: Odibendi Chukwuemelie Uchenna
+Registration Number: 2024924004
+Course Code: NAU-CYB 221
+Level: 200l
+Department: Cyber Security
+Faculty: Physical Science
+  
+
+**Date of Report:** March 2025 (based on practical exercise conducted in 2025)
+
+### Tool Used
+Custom C++ local port inspection tool reading `/proc/net/tcp` and `/proc/net/udp`  
+(Improved version parsing local IP addresses and attempting inode-to-PID mapping)  
+Executed with root privileges via `sudo ./port_inspector` inside ChromeOS Crostini Linux container.
+
+### Ports Detected and Their Purpose
+
+Running the tool with elevated privileges revealed the following listening/used ports:
+
+- **UDP 68** bound to **0.0.0.0**  
+  Process: `dhclient` (DHCP client)  
+  Purpose: Standard client port used by DHCP to receive broadcast replies containing IP address, subnet mask, gateway, DNS servers, etc. (RFC 2131). Binding only to loopback would prevent the container from obtaining dynamic network configuration from the host. This is normal and required behavior in most container/VM environments that use DHCP.
+
+- **TCP 5036** bound to **127.0.0.1**  
+  Process: Not captured in output (mapping incomplete in current tool version)  
+  Likely process: `code` / Code-OSS / Visual Studio Code server  
+  Purpose: Internal communication endpoint commonly used by VS Code when running in containerized or remote-SSH mode. Handles extension host communication, live preview servers, debug adapters, language server protocol (LSP) connections, etc. Binding exclusively to loopback interface ensures the port is never reachable from outside the container.
+
+**Note:** The tool output showed only these two ports. No other TCP or UDP entries appeared in listening or established state that were captured by the current implementation.
+
+### Exposed vs Local-Only Classification
+
+- **UDP 68** → **Exposed** (bound to 0.0.0.0)  
+  → Required for proper DHCP operation inside the container.  
+  → Practical risk level: **Low** in the ChromeOS Crostini context (sandboxed container, host-controlled network bridge, no direct LAN exposure).  
+  → Theoretical risks: Rogue DHCP server attacks, DHCP starvation, information disclosure via DHCP options — mostly irrelevant due to container isolation and ChromeOS network architecture.
+
+- **TCP 5036** → **Local-only** (bound to 127.0.0.1)  
+  → No external access is possible even if someone gains network access to the host.  
+  → Risk level: **Negligible** for remote exploitation.
+
+**No high-interest / sensitive ports** were detected (examples of monitored ports in tool: 21/FTP, 22/SSH, 23/Telnet, 25/SMTP, 80/HTTP, 443/HTTPS, 445/SMB, 3389/RDP, etc.).  
+This results in an **extremely small attack surface** — consistent with a minimal developer container that runs almost no background services.
+
+### Why These Ports Matter in This Context
+
+Listening ports serve as the primary **reconnaissance vector** during the initial phase of most network attacks.  
+Attackers commonly use port scanning (nmap, masscan, zmap) to:
+
+- Discover live hosts  
+- Identify running services  
+- Fingerprint software versions  
+- Match versions against known vulnerabilities (CVE databases)  
+- Launch targeted exploits or brute-force attempts
+
+Each unnecessary or misconfigured listening port increases the **attack surface** and gives defenders more items to monitor/harden.  
+In this case:
+
+- Both detected ports have **clear justification**  
+- One is mandated by core networking (DHCP)  
+- The other supports active development workflow (VS Code)  
+- No legacy, unnecessary, or high-risk services are present
+
+This reflects good **default hardening** behavior in modern containerized environments like Crostini.
+
+### Security Controls and Hardening Recommendations
+
+To further reduce the already minimal attack surface:
+
+1. **Eliminate UDP 68 exposure (optional – most users keep it)**  
+   Configure a static IP inside Crostini instead of relying on DHCP:  
+   ```bash
+   nmcli con mod "Linux" ipv4.method manual ipv4.addresses 100.115.92.200/24 ipv4.gateway 100.115.92.1 ipv4.dns 8.8.8.8
+   nmcli con up "Linux"
+   ```  
+   → Completely removes `dhclient` and the UDP 68 listener.
+
+2. **Minimize / close TCP 5036 when not needed**  
+   - Close Visual Studio Code when development work is paused  
+   - Disable extensions that start local servers (Live Server, debug adapters, etc.)  
+   - Use VS Code `--disable-extensions` flag for sensitive sessions
+
+3. **Verify and clean port forwarding rules**  
+   ChromeOS Settings → Linux (Beta) → Port Forwarding →  
+   → Remove any unnecessary forwarded ports to prevent accidental external exposure
+
+4. Network-layer protections
+   - Always enable ChromeOS VPN when connected to public or untrusted Wi-Fi  
+   - This encrypts DHCP traffic and reduces risk of spoofing/man-in-the-middle attacks
+
+5. Continuous / periodic monitoring
+   - Re-run `sudo ./port_inspector` or the more reliable command:  
+     ```bash
+     sudo ss -ltnup
+     ```  
+   - Set up alerts or scripts if unexpected ports appear
+
+Conclusion
+
+This practical exercise using a custom `/proc`-based port inspection tool demonstrates that **visibility is the foundation of defensive security**.  
+
+My current Crostini Linux environment exposes only two explainable ports:
+
+- One protocol-mandated low-risk port (UDP 68 – DHCP)  
+- One development-tool internal port (TCP 5036 – VS Code)  
+
+No legacy services, administrative interfaces, file-sharing protocols, or remote access endpoints are active. This minimal footprint is a direct result of ChromeOS Crostini’s **security-focused design**: container isolation, strict default-deny networking, and elimination of unnecessary daemons.
+
+The attack surface is already very small. With simple changes (static IP + closing VS Code when idle), it can be reduced even closer to zero — aligning with **least functionality** and **least privilege** principles taught in cybersecurity.
+
+Prepared by: Odibendi Chukwuemelie Uchenna
+Course: NAU-CYB 221 – Cybersecurity Technology  
+Date: March 2025
